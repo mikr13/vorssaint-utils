@@ -5,7 +5,46 @@ import CoreGraphics
 import Foundation
 
 enum InstantSpacesTests {
+    enum SymbolicHotKeys {
+        static var table: [LiveSystemShortcut]?
+        static var reads: [Set<Int32>] = []
+        static func entries(for ids: Set<Int32>) -> [LiveSystemShortcut]? {
+            reads.append(ids)
+            return table?.filter { ids.contains($0.id) }
+        }
+    }
+
+    enum ShortcutCapture { static var isCapturing = false }
+    enum CGEventSource {
+        static var dragging = false
+        static func buttonState(_ state: CGEventSourceStateID, button: CGMouseButton) -> Bool { dragging }
+    }
+
+    class KeyboardFixture {
+        struct Tap { let port: CFMachPort }
+        var keyboardTap: Tap?
+        var swipeTap: Tap?
+        var envelopeTap: Tap?
+        var swipe: InstantSpacesSupport.Swipe?
+        var keyboardEnabled = true
+        var canRun = true
+        var claimedKeys: Set<Int64> = []
+        var travel: DispatchWorkItem?
+        // Deliberately stale: a return to cached matching must fail these checks.
+        var shortcuts = [LiveSystemShortcut(id: 81, keyCode: 124, flags: .maskControl, enabled: true)]
+        var overview = false
+        var actions: [InstantSpacesSupport.Action] = []
+        func suspend() {}
+        func syncWithPreferences() {}
+        func overviewIsActive() -> Bool? { overview }
+        func perform(_ action: InstantSpacesSupport.Action) -> Bool { actions.append(action); return true }
+        func handleSwipe(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+            Unmanaged.passUnretained(event)
+        }
+    }
+
     static func run(_ suite: TestSuite) {
+        keyboardRefresh(suite)
         let bindings = [
             LiveSystemShortcut(id: 79, keyCode: 123, flags: .maskControl, enabled: true),
             LiveSystemShortcut(id: 81, keyCode: 124, flags: .maskAlternate, enabled: false),
@@ -134,5 +173,71 @@ enum InstantSpacesTests {
                           strings.trackpad, strings.trackpadCaption, strings.compatibility, strings.unavailable]
                 .allSatisfy { !$0.isEmpty }, "Instant Spaces covers every field in \(language)")
         }
+    }
+
+    private static func keyboardRefresh(_ suite: TestSuite) {
+        defer {
+            SymbolicHotKeys.table = nil
+            SymbolicHotKeys.reads = []
+            ShortcutCapture.isCapturing = false
+            CGEventSource.dragging = false
+        }
+        let host = KeyboardHost()
+        func send(_ key: CGKeyCode, flags: CGEventFlags = .maskControl,
+                  type: CGEventType = .keyDown) -> Bool {
+            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: key, keyDown: type == .keyDown) else {
+                suite.expect(false, "keyboard regression events can be created")
+                return false
+            }
+            event.flags = flags
+            return host.handle(proxy: OpaquePointer(bitPattern: 1)!, type: type, event: event) == nil
+        }
+        SymbolicHotKeys.table = host.shortcuts
+        suite.expect(send(124) && host.actions == [.step(1)], "an enabled live shortcut is intercepted")
+        suite.expect(send(124, type: .keyUp), "an intercepted shortcut consumes its release")
+
+        SymbolicHotKeys.table = [LiveSystemShortcut(id: 81, keyCode: 124, flags: .maskControl, enabled: false)]
+        suite.expect(!send(124) && host.actions.count == 1,
+                     "disabling a shortcut takes effect without app activation or preference synchronization")
+        suite.expect(!send(124, type: .keyUp), "a disabled shortcut's release retains native handling")
+
+        SymbolicHotKeys.table = [LiveSystemShortcut(id: 81, keyCode: 47, flags: .maskAlternate, enabled: true)]
+        suite.expect(!send(124), "remapping a shortcut immediately releases the previous binding")
+        suite.expect(send(47, flags: .maskAlternate) && host.actions.count == 2,
+                     "a new key and modifier binding works without app activation")
+        _ = send(47, flags: .maskAlternate, type: .keyUp)
+        SymbolicHotKeys.table = nil
+        suite.expect(!send(124) && !send(47, flags: .maskAlternate) && host.actions.count == 2,
+                     "a failed live lookup never falls back to a stale enabled shortcut")
+        suite.expect(!SymbolicHotKeys.reads.isEmpty
+            && SymbolicHotKeys.reads.allSatisfy { $0 == InstantSpacesSupport.shortcutIDs },
+                     "keyboard matching reads only the known Space shortcut entries")
+
+        SymbolicHotKeys.table = host.shortcuts
+        host.claimedKeys.removeAll()
+        let reads = SymbolicHotKeys.reads.count
+        host.keyboardEnabled = false
+        suite.expect(!send(124), "disabling keyboard switching preserves native handling")
+        host.keyboardEnabled = true
+        host.canRun = false
+        suite.expect(!send(124), "an inactive or unavailable service preserves native handling")
+        host.canRun = true
+        ShortcutCapture.isCapturing = true
+        suite.expect(!send(124), "shortcut capture preserves native handling")
+        suite.expect(SymbolicHotKeys.reads.count == reads,
+                     "inactive keyboard interception does not read the shortcut table")
+        ShortcutCapture.isCapturing = false
+        CGEventSource.dragging = true
+        suite.expect(!send(124), "window dragging retains native handling with live shortcut matching")
+        CGEventSource.dragging = false
+        host.overview = true
+        suite.expect(!send(124), "an overview retains native handling with live shortcut matching")
+        host.overview = false
+        suite.expect(!send(0, flags: []) && host.actions.count == 2,
+                     "ordinary typing never starts Space navigation")
+        let intercepted = send(124)
+        SymbolicHotKeys.table = []
+        suite.expect(intercepted && send(124, type: .keyUp),
+                     "a claimed key's release stays paired when its binding changes while held")
     }
 }

@@ -6,7 +6,9 @@ its settings page. Accessibility is required. The feature starts uninstalled,
 and reinstalling it preserves saved control choices.
 
 Keyboard switching reads the enabled macOS shortcuts for moving left or right
-and switching to Desktop 1–10. It does not rewrite the system shortcut table.
+and switching to Desktop 1–10 on each key-down. Remapping or disabling a shortcut
+takes effect without switching away from System Settings. It does not rewrite
+the system shortcut table.
 Desktop numbers omit fullscreen Spaces; adjacent navigation includes them.
 Numbered shortcuts targeting another display retain native macOS handling.
 

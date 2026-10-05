@@ -5,8 +5,8 @@ import AppKit
 import ApplicationServices
 import Combine
 
-/// Main-run-loop input taps. Only matching shortcuts and horizontal DockSwipes
-/// query the window server; ordinary typing and pointer motion do no work.
+/// Main-run-loop input taps. Keyboard matching reads live system bindings;
+/// only matching shortcuts and horizontal DockSwipes query Space topology.
 final class InstantSpacesService: ObservableObject {
     static let shared = InstantSpacesService()
 
@@ -20,10 +20,8 @@ final class InstantSpacesService: ObservableObject {
     private var keyboardTap: Tap?
     private var swipeTap: Tap?
     private var envelopeTap: Tap?
-    private var observers: [NSObjectProtocol] = []
     private var wakeObserver: NSObjectProtocol?
     private var sleepObserver: NSObjectProtocol?
-    private var shortcuts: [LiveSystemShortcut] = []
     private var claimedKeys: Set<Int64> = []
     private var swipe: InstantSpacesSupport.Swipe?
     private var pendingEvents: [CGEvent] = []
@@ -82,16 +80,7 @@ final class InstantSpacesService: ObservableObject {
             if swipeTap == nil { removeTap(&envelopeTap) }
             setEnvelopeEnabled(false)
         }
-        refreshShortcuts()
         isRunning = (!keyboardEnabled || keyboardTap != nil) && (!swipeEnabled || swipeTap != nil)
-        if observers.isEmpty, keyboardTap != nil || swipeTap != nil {
-            let center = NSWorkspace.shared.notificationCenter
-            for name in [NSWorkspace.didActivateApplicationNotification] {
-                observers.append(center.addObserver(forName: name, object: nil, queue: .main) {
-                    [weak self] _ in self?.refreshShortcuts()
-                })
-            }
-        }
     }
 
     func suspend() {
@@ -101,15 +90,7 @@ final class InstantSpacesService: ObservableObject {
         removeTap(&swipeTap)
         removeTap(&envelopeTap)
         claimedKeys.removeAll()
-        shortcuts.removeAll()
-        for observer in observers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
-        observers.removeAll()
         isRunning = false
-    }
-
-    private func refreshShortcuts() {
-        shortcuts = keyboardEnabled
-            ? SymbolicHotKeys.entries(for: InstantSpacesSupport.shortcutIDs) ?? [] : []
     }
 
     private func makeTap(types: [UInt32]) -> Tap? {
@@ -171,7 +152,10 @@ final class InstantSpacesService: ObservableObject {
         if type == .keyDown {
             let key = event.getIntegerValueField(.keyboardEventKeycode)
             if claimedKeys.contains(key), travel != nil { return nil }
+            // System Settings can remap or disable a binding while it stays
+            // foreground. Read the known IDs before deciding to intercept.
             guard keyboardEnabled, canRun, !ShortcutCapture.isCapturing,
+                  let shortcuts = SymbolicHotKeys.entries(for: InstantSpacesSupport.shortcutIDs),
                   let action = InstantSpacesSupport.action(keyCode: key, flags: event.flags,
                                                            shortcuts: shortcuts),
                   !CGEventSource.buttonState(.combinedSessionState, button: .left),

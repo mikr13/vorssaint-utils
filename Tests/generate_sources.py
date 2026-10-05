@@ -47,6 +47,11 @@ def availability_declaration(path, prefix):
 
 def main():
     OUTPUT.mkdir(parents=True, exist_ok=True)
+    write("InstantSpacesKeyboard.swift", "import CoreGraphics\nimport Foundation\n"
+          + "extension InstantSpacesTests {\nfinal class KeyboardHost: KeyboardFixture {\n"
+          + declaration("Sources/Vorssaint/Services/InstantSpaces/InstantSpacesService.swift",
+                        "    private func handle(proxy:").replace("private func", "func", 1)
+          + "}\n}\n")
     write("SwitcherAccessibilitySnapshot.swift", "import ApplicationServices\nimport CoreGraphics\nimport Foundation\n"
           + "extension SwitcherAccessibilitySnapshotTests.Reader {\n"
           + "".join(declaration("Sources/Vorssaint/Services/Switcher/WindowEnumerator.swift", prefix)
