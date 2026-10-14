@@ -169,7 +169,8 @@ enum SwitcherFullscreenScopeTests {
                 isMinimized: minimized, isFullscreen: false, isNativeFullscreen: false)
             let video = Enumerator.AccessibilityWindowSnapshot(
                 title: "Window 8", frame: frame, isMinimized: false, isFullscreen: true, isNativeFullscreen: true)
-            Enumerator.answers = [1: .init(ordered: [(id: 7, snapshot: local), (id: 8, snapshot: video)],
+            Enumerator.answers = [1: .init(ordered: [(id: CGWindowID(7), snapshot: local),
+                                                    (id: CGWindowID(8), snapshot: video)],
                                            byID: [7: local, 8: video])]
         }
         func representative(currentSpaceOnly: Bool) -> [CGWindowID] {
